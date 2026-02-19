@@ -1,7 +1,17 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { io } from "socket.io-client";
+import { QRCodeSVG } from "qrcode.react";
 
 const DEFAULT_ROOM = "main";
+
+const clientId = (() => {
+  let id = localStorage.getItem("clientId");
+  if (!id) {
+    id = crypto.randomUUID();
+    localStorage.setItem("clientId", id);
+  }
+  return id;
+})();
 const SOCKET_ORIGIN = import.meta.env.VITE_SOCKET_ORIGIN || "";
 const AUDIO_BASE_URL = import.meta.env.VITE_AUDIO_BASE_URL || SOCKET_ORIGIN;
 const DEFAULT_TRACK = AUDIO_BASE_URL
@@ -83,9 +93,15 @@ export default function App() {
   const [duration, setDuration] = useState(0);
   const [currentTime, setCurrentTime] = useState(0);
   const [seeking, setSeeking] = useState(false);
-  const [volume, setVolume] = useState(1);
+  const [copyState, setCopyState] = useState("idle");
+  const [peers, setPeers] = useState([]);
+  const [volume, setVolume] = useState(() => {
+    const saved = localStorage.getItem("volume");
+    return saved !== null ? Number(saved) : 1;
+  });
 
   const waveformBars = useMemo(() => [0, 1, 2, 3, 4], []);
+  const shareUrl = `${window.location.origin}${window.location.pathname}#${roomId}`;
 
   const clearScheduledPlay = () => {
     if (scheduledPlayTimer.current) {
@@ -159,7 +175,8 @@ export default function App() {
       return;
     }
 
-    const targetStartLocalMs = state.anchorServerTimeMs - serverOffsetRef.current;
+    const targetStartLocalMs =
+      state.anchorServerTimeMs - serverOffsetRef.current;
     const delayMs = Math.max(0, targetStartLocalMs - Date.now());
 
     const startPlayback = async () => {
@@ -206,6 +223,12 @@ export default function App() {
   }, [seeking]);
 
   useEffect(() => {
+    if (audioRef.current) {
+      audioRef.current.volume = volume;
+    }
+  }, []);
+
+  useEffect(() => {
     const socketServerUrl = SOCKET_ORIGIN || undefined;
     const socket = io(socketServerUrl, {
       transports: ["websocket"],
@@ -221,7 +244,11 @@ export default function App() {
     socket.on("connect", () => {
       setIsConnected(true);
       setStatus("Connected");
-      socket.emit("join_room", { roomId: roomIdRef.current });
+      socket.emit("join_room", {
+        roomId: roomIdRef.current,
+        clientId,
+        userAgent: navigator.userAgent,
+      });
       syncClock();
     });
 
@@ -233,7 +260,7 @@ export default function App() {
     socket.on("connect_error", (err) => {
       setIsConnected(false);
       setStatus(
-        `Connection error: ${err?.message || "backend unavailable"} (${socketServerUrl || "same-origin"})`,
+        `Connection error: ${err?.message || "backend unavailable"} (${socketServerUrl || "same-origin"})`
       );
     });
 
@@ -245,6 +272,8 @@ export default function App() {
         pushOffsetSample(estimatedOffset, rtt);
       }
     });
+
+    socket.on("room_peers", ({ peers }) => setPeers(peers));
 
     socket.on("room_state", ({ roomId: incomingRoomId, state }) => {
       setRoomId(incomingRoomId);
@@ -277,8 +306,23 @@ export default function App() {
     const nextRoom = roomInput.trim() || DEFAULT_ROOM;
     setRoomId(nextRoom);
     window.history.replaceState({}, "", `#${nextRoom}`);
-    socket.emit("join_room", { roomId: nextRoom });
+    socket.emit("join_room", {
+      roomId: nextRoom,
+      clientId,
+      userAgent: navigator.userAgent,
+    });
     setStatus(`Joined room ${nextRoom}`);
+  };
+
+  const copyShareUrl = async () => {
+    try {
+      await navigator.clipboard.writeText(shareUrl);
+      setCopyState("copied");
+    } catch (_err) {
+      setCopyState("failed");
+    }
+
+    setTimeout(() => setCopyState("idle"), 1500);
   };
 
   const enableAudio = async () => {
@@ -419,20 +463,40 @@ export default function App() {
               </button>
               <button
                 onClick={() =>
-                  sendControl({
-                    action: "play",
-                    positionSec: audioRef.current?.currentTime || 0,
-                  })
+                  isPlaying
+                    ? sendControl({ action: "pause" })
+                    : sendControl({
+                        action: "play",
+                        positionSec: audioRef.current?.currentTime || 0,
+                      })
                 }
-                className="rounded-xl border border-emerald-300/40 bg-emerald-400/20 px-4 py-2 font-medium transition hover:bg-emerald-400/30"
+                aria-label={isPlaying ? "Pause" : "Play"}
+                className={`flex items-center justify-center rounded-xl px-4 py-2 font-medium transition ${
+                  isPlaying
+                    ? "border border-rose-300/40 bg-rose-400/20 hover:bg-rose-400/30"
+                    : "border border-emerald-300/40 bg-emerald-400/20 hover:bg-emerald-400/30"
+                }`}
               >
-                Play
-              </button>
-              <button
-                onClick={() => sendControl({ action: "pause" })}
-                className="rounded-xl border border-rose-300/40 bg-rose-400/20 px-4 py-2 font-medium transition hover:bg-rose-400/30"
-              >
-                Pause
+                {isPlaying ? (
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    viewBox="0 0 24 24"
+                    fill="currentColor"
+                    className="h-5 w-5"
+                  >
+                    <rect x="6" y="4" width="4" height="16" rx="1" />
+                    <rect x="14" y="4" width="4" height="16" rx="1" />
+                  </svg>
+                ) : (
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    viewBox="0 0 24 24"
+                    fill="currentColor"
+                    className="h-5 w-5"
+                  >
+                    <polygon points="5,3 19,12 5,21" />
+                  </svg>
+                )}
               </button>
             </div>
 
@@ -448,6 +512,7 @@ export default function App() {
                   onChange={(event) => {
                     const nextVolume = Number(event.target.value);
                     setVolume(nextVolume);
+                    localStorage.setItem("volume", nextVolume);
                     if (audioRef.current) {
                       audioRef.current.volume = nextVolume;
                     }
@@ -539,13 +604,75 @@ export default function App() {
               Set Track
             </button>
 
-            <p className="text-xs text-slate-400">
-              Share this URL with others:{" "}
-              <span className="text-slate-200">
-                {window.location.origin}
-                {window.location.pathname}#{roomId}
-              </span>
-            </p>
+            <div>
+              <h3 className="mb-2 text-sm font-medium text-slate-300">
+                Listeners ({peers.length})
+              </h3>
+              <ul className="space-y-1">
+                {peers.map((p) => (
+                  <li
+                    key={p.clientId}
+                    className="rounded-lg bg-slate-900/50 px-3 py-2 text-xs text-slate-300 space-y-0.5"
+                  >
+                    <div className="flex items-center gap-2">
+                      <span className="font-mono text-cyan">
+                        {p.clientId.slice(0, 8)}
+                      </span>
+                      <span className="flex-1 truncate">
+                        {p.browser} · {p.os}
+                      </span>
+                      {p.clientId === clientId && (
+                        <span className="text-slate-500">(you)</span>
+                      )}
+                    </div>
+                    <div className="font-mono text-slate-500">{p.ip}</div>
+                  </li>
+                ))}
+              </ul>
+            </div>
+
+            <div className="space-y-2 text-xs text-slate-400">
+              <p>Share this URL with others:</p>
+              <div className="flex items-center gap-2 rounded-lg border border-slate-700 bg-slate-900/70 p-2">
+                <span className="min-w-0 flex-1 truncate text-slate-200">
+                  {shareUrl}
+                </span>
+                <button
+                  onClick={copyShareUrl}
+                  type="button"
+                  aria-label="Copy share URL"
+                  title="Copy URL"
+                  className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-slate-600 text-slate-200 transition hover:border-cyan hover:text-cyan"
+                >
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="1.8"
+                    className="h-4 w-4"
+                  >
+                    <rect x="9" y="9" width="11" height="11" rx="2" />
+                    <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+                  </svg>
+                </button>
+              </div>
+              {copyState === "copied" ? (
+                <p className="text-cyan">Copied</p>
+              ) : null}
+              {copyState === "failed" ? (
+                <p className="text-rose-300">Copy failed</p>
+              ) : null}
+              <div className="flex justify-center pt-1">
+                <QRCodeSVG
+                  value={shareUrl}
+                  size={148}
+                  bgColor="transparent"
+                  fgColor="#e2e8f0"
+                  className="rounded-lg"
+                />
+              </div>
+            </div>
           </aside>
         </div>
       </div>
@@ -569,7 +696,7 @@ export default function App() {
           const audio = audioRef.current;
           const mediaErrorCode = audio?.error?.code;
           setStatus(
-            `Track failed to load (${mediaErrorCode || "unknown"}). Check URL/path.`,
+            `Track failed to load (${mediaErrorCode || "unknown"}). Check URL/path.`
           );
         }}
         onTimeUpdate={onTimeUpdate}

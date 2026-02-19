@@ -1,0 +1,26 @@
+services:
+  server:
+    build:
+      context: .
+      dockerfile: server/dockerfile.dev
+    command: npx nodemon server/index.js
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./server:/app/server
+      - ./node_modules:/app/node_modules
+
+  client:
+    build:
+      context: ./client
+      dockerfile: dockerfile.dev
+    environment:
+      VITE_SOCKET_ORIGIN: http://localhost:3000
+      VITE_AUDIO_BASE_URL: http://localhost:3000
+    ports:
+      - "5173:5173"
+    volumes:
+      - ./client:/app
+      - ./client/node_modules:/app/node_modules
+    depends_on:
+      - server
