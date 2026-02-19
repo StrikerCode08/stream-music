@@ -119,9 +119,9 @@ export default function App() {
 
     const best = [...offsetCandidatesRef.current]
       .sort((a, b) => a.rttMs - b.rttMs)
-      .slice(0, 7)
-      .map((x) => x.offsetMs)
-      .sort((a, b) => a - b);
+      ?.slice(0, 7)
+      ?.map((x) => x.offsetMs)
+      ?.sort((a, b) => a - b);
 
     if (!best.length) return;
     const median = best[Math.floor(best.length / 2)];
@@ -616,7 +616,7 @@ export default function App() {
                   >
                     <div className="flex items-center gap-2">
                       <span className="font-mono text-cyan">
-                        {p.clientId.slice(0, 8)}
+                        {p.clientId?.slice(0, 8)}
                       </span>
                       <span className="flex-1 truncate">
                         {p.browser} · {p.os}
