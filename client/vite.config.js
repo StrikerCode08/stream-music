@@ -9,11 +9,17 @@ export default defineConfig({
     port: 5173,
     proxy: {
       "/socket.io": {
-        target: process.env.VITE_SOCKET_ORIGIN,
+        target: process.env.VITE_SOCKET_ORIGIN || "http://localhost:3000",
         ws: true,
       },
       "/audio": {
-        target: process.env.VITE_AUDIO_BASE_URL,
+        target:
+          process.env.VITE_AUDIO_BASE_URL ||
+          process.env.VITE_SOCKET_ORIGIN ||
+          "http://localhost:3000",
+      },
+      "/api": {
+        target: process.env.VITE_SOCKET_ORIGIN || "http://localhost:3000",
       },
     },
   },

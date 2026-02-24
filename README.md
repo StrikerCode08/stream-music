@@ -23,6 +23,11 @@ cp .env.example .env
 cp client/.env.example client/.env
 ```
 
+Set catalog provider values in `.env` (backend):
+
+- `CATALOG_API_BASE_URL=https://api.jamendo.com/v3.0`
+- `CATALOG_API_CLIENT_ID=<your-client-id>`
+
 ## Run in Development
 
 ```bash

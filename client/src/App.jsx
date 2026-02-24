@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { io } from "socket.io-client";
 import { QRCodeSVG } from "qrcode.react";
+import CatalogSearchPanel from "./components/CatalogSearchPanel";
 
 const DEFAULT_ROOM = "main";
 
@@ -141,6 +142,7 @@ export default function App() {
   const applyRoomState = async (state) => {
     const audio = audioRef.current;
     if (!audio) return;
+    const prevState = activeStateRef.current;
 
     activeStateRef.current = state;
     setIsPlaying(state.isPlaying);
@@ -175,6 +177,14 @@ export default function App() {
       return;
     }
 
+    const playbackAnchorChanged =
+      !prevState ||
+      !prevState.isPlaying ||
+      prevState.anchorServerTimeMs !== state.anchorServerTimeMs ||
+      Math.abs((prevState.anchorPositionSec || 0) - state.anchorPositionSec) >
+        0.05 ||
+      trackChanged;
+
     const targetStartLocalMs =
       state.anchorServerTimeMs - serverOffsetRef.current;
     const delayMs = Math.max(0, targetStartLocalMs - Date.now());
@@ -198,11 +208,20 @@ export default function App() {
       }
     };
 
-    clearScheduledPlay();
-    if (delayMs > 80) {
-      scheduledPlayTimer.current = setTimeout(startPlayback, delayMs);
-    } else {
-      await startPlayback();
+    if (playbackAnchorChanged || audio.paused) {
+      clearScheduledPlay();
+      if (delayMs > 80) {
+        scheduledPlayTimer.current = setTimeout(startPlayback, delayMs);
+      } else {
+        await startPlayback();
+      }
+      return;
+    }
+
+    const softTargetSec = getNowPositionFromState(state);
+    const softDriftSec = softTargetSec - (audio.currentTime || 0);
+    if (Math.abs(softDriftSec) > 0.35) {
+      audio.currentTime = softTargetSec;
     }
   };
 
@@ -250,6 +269,8 @@ export default function App() {
         userAgent: navigator.userAgent,
       });
       syncClock();
+      setTimeout(syncClock, 200);
+      setTimeout(syncClock, 450);
     });
 
     socket.on("disconnect", () => {
@@ -353,6 +374,11 @@ export default function App() {
   const onTimeUpdate = () => {
     const audio = audioRef.current;
     if (!audio) return;
+
+    if (seekingRef.current) {
+      audio.playbackRate = 1;
+      return;
+    }
 
     if (!seeking) {
       setCurrentTime(audio.currentTime || 0);
@@ -603,6 +629,12 @@ export default function App() {
             >
               Set Track
             </button>
+            <CatalogSearchPanel
+              onUseTrack={(trackUrl) => {
+                setTrackUrlInput(trackUrl);
+                sendControl({ action: "set_track", trackUrl });
+              }}
+            />
 
             <div>
               <h3 className="mb-2 text-sm font-medium text-slate-300">
