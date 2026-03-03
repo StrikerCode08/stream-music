@@ -5,7 +5,11 @@ const http = require("http");
 const { Server } = require("socket.io");
 require("dotenv").config({ path: path.join(__dirname, "..", ".env") });
 
-const { APP_CONFIG, ALLOWED_ORIGINS, normalizeOrigin } = require("./config/appConfig");
+const {
+  APP_CONFIG,
+  ALLOWED_ORIGINS,
+  normalizeOrigin,
+} = require("./config/appConfig");
 const { createCatalogRouter } = require("./routes/catalogRoutes");
 const { createRealtimeSyncServer } = require("./realtime/socketServer");
 
@@ -40,7 +44,10 @@ app.use((req, res, next) => {
     res.setHeader("Access-Control-Allow-Origin", origin);
     res.setHeader("Vary", "Origin");
     res.setHeader("Access-Control-Allow-Credentials", "true");
-    res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
+    res.setHeader(
+      "Access-Control-Allow-Headers",
+      "Content-Type, Authorization"
+    );
     res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
   }
 
@@ -90,5 +97,7 @@ createRealtimeSyncServer({
 });
 
 server.listen(APP_CONFIG.port, "0.0.0.0", () => {
-  console.log(`Sync audio backend running at http://localhost:${APP_CONFIG.port}`);
+  console.log(
+    `Sync audio backend running at http://localhost:${APP_CONFIG.port}`
+  );
 });
